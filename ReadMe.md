@@ -1,6 +1,5 @@
 ﻿# KEventSystem 
 
----
 1. 事件使用Attribute进行注册 <***KEventListenerAttribute***>
 2. Attribute中传递的类型必须是委托类型，并且放在KEventFlag类下
 3. KEventFlag类可以随便放哪里，只要名字相同即可，推荐使用静态类
@@ -57,3 +56,8 @@ public class KEventTest
 ![设置平台](Pictures/Picture01.png)
 ![添加标签](Pictures/Picture02.png)
 ![标签内容](Pictures/Picture03.png)
+
+# TODO
+
+* 目前的事件系统使用的是反射，所以性能有些捉鸡，不过只要不是频繁使用，其实影响不大
+* 下一步准备用表达式树对事件系统进行优化，表达式树编译过后拥有近乎直接调用函数的性能
