@@ -9,7 +9,7 @@ namespace Kdletters.KEventSystem
 {    
     public static class KEventFlag
     {
-        public delegate void VoidEvent(EventTest self);
+        public delegate void VoidEvent(KEventTest self);
 
         public delegate void Event1(object obj);
 
