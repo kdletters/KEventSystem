@@ -1,5 +1,7 @@
 ﻿# KEventSystem 
 
+****项目需要使用netstandard2.1及以上版本****
+
 1. 事件使用Attribute进行注册 <***KEventListenerAttribute***>
 2. Attribute中传递的类型必须是委托类型，并且放在KEventFlag类下
 3. KEventFlag类可以随便放哪里，只要名字相同即可，推荐使用静态类
