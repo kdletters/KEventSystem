@@ -30,7 +30,7 @@ namespace Kdletters.EventSystem
                         List<EventInfo> delegates;
                         if (method.IsStatic)
                         {
-                            if (!InstanceEvents.TryGetValue(key, out delegates))
+                            if (!StaticEvents.TryGetValue(key, out delegates))
                             {
                                 delegates = StaticEvents[key] = new List<EventInfo>();
                             }
