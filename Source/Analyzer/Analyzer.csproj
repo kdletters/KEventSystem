@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Nullable>enable</Nullable>
+        <LangVersion>9</LangVersion>
+        <TargetFramework>netstandard2.1</TargetFramework>
+        <Company>Kdletters</Company>
+        <Product>Kdletters</Product>
+        <AssemblyVersion>0.0.1</AssemblyVersion>
+        <FileVersion>0.0.2</FileVersion>
+        <NeutralLanguage>zh-CN</NeutralLanguage>
+        <RootNamespace>Kdletters</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.2.0-4.final" PrivateAssets="all" />
+      <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4-beta1.22168.1">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      </PackageReference>
+    </ItemGroup>
+
+</Project>
