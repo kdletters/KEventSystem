@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
@@ -11,46 +12,50 @@ namespace Kdletters.EventSystem
     public static class KEventSystem
     {
         private static bool Initialized;
-        private static readonly Dictionary<string, List<EventInfo>> InstanceEvents = new();
-        private static readonly Dictionary<string, List<EventInfo>> StaticEvents = new();
+        private static readonly Dictionary<int, List<EventInfo>> InstanceEvents = new();
+        private static readonly Dictionary<int, List<EventInfo>> StaticEvents = new();
 
-        public static async Task InitAsync(Assembly assembly)
+        public static async Task InitAsync(params Assembly[] assemblies)
         {
             var tasks = new List<Task>();
-            foreach (var type in assembly.GetTypes())
+
+            foreach (var assembly in assemblies)
             {
-                tasks.Add(Task.Run(() =>
+                foreach (var type in assembly.GetTypes())
                 {
-                    foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
+                    tasks.Add(Task.Run(() =>
                     {
-                        var attribute = method.GetCustomAttribute<KEventListenerAttribute>();
-                        if (attribute is null) continue;
-                        if (!attribute.EventFlag.IsSubclassOf(typeof(Delegate))) continue;
-                        var             key = attribute.EventFlag.Name;
-                        List<EventInfo> delegates;
-                        if (method.IsStatic)
+                        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
                         {
-                            if (!StaticEvents.TryGetValue(key, out delegates))
+                            var attribute = method.GetCustomAttribute<KEventListenerAttribute>();
+                            if (attribute is null) continue;
+                            if (!attribute.EventFlag.IsSubclassOf(typeof(Delegate))) continue;
+                            var             key = attribute.EventFlag.FullName!.GetHashCode();
+                            List<EventInfo> delegates;
+                            if (method.IsStatic)
                             {
-                                delegates = StaticEvents[key] = new List<EventInfo>();
+                                if (!StaticEvents.TryGetValue(key, out delegates))
+                                {
+                                    delegates = StaticEvents[key] = new List<EventInfo>();
+                                }
                             }
-                        }
-                        else
-                        {
-                            if (!InstanceEvents.TryGetValue(key, out delegates))
+                            else
                             {
-                                delegates = InstanceEvents[key] = new List<EventInfo>();
+                                if (!InstanceEvents.TryGetValue(key, out delegates))
+                                {
+                                    delegates = InstanceEvents[key] = new List<EventInfo>();
+                                }
                             }
+
+                            var parameterInfos = method.GetParameters();
+                            var parameters     = new Type[parameterInfos.Length];
+                            foreach (var parameter in parameterInfos)
+                                parameters[parameter.Position] = parameter.ParameterType;
+
+                            delegates.Add(new EventInfo(key, Delegate.CreateDelegate(attribute.EventFlag, method), parameters));
                         }
-
-                        var parameterInfos = method.GetParameters();
-                        var parameters     = new Type[parameterInfos.Length];
-                        foreach (var parameter in parameterInfos)
-                            parameters[parameter.Position] = parameter.ParameterType;
-
-                        delegates.Add(new EventInfo(key, Delegate.CreateDelegate(attribute.EventFlag, method), parameters));
-                    }
-                }));
+                    }));
+                }
             }
 
             await Task.WhenAll(tasks);
@@ -60,7 +65,7 @@ namespace Kdletters.EventSystem
         public static void Dispatch<T>(params object[] parameters) where T : Delegate
         {
             if (!Initialized) throw new Exception("事件系统未初始化");
-            var key = typeof(T).Name;
+            var key = typeof(T).FullName.GetHashCode();
             if (StaticEvents.ContainsKey(key))
             {
                 foreach (var eventInfo in StaticEvents[key])
@@ -80,12 +85,12 @@ namespace Kdletters.EventSystem
 
         private class EventInfo
         {
-            public string DelegateType;
+            public int DelegateType;
 
             public Delegate Delegate;
             public Type[] Parameters;
 
-            public EventInfo(string delegateType, Delegate @delegate, params Type[] parameters)
+            public EventInfo(int delegateType, Delegate @delegate, params Type[] parameters)
             {
                 DelegateType = delegateType;
                 Delegate     = @delegate;
