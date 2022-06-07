@@ -35,6 +35,7 @@ namespace Kdletters.Analyzer
 
         public override void Initialize(AnalysisContext context)
         {
+            return;
             context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
             context.EnableConcurrentExecution();
 

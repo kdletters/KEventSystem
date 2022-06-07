@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -11,10 +12,13 @@ namespace Kdletters.EventSystem
     //TODO 委托优化成表达式树
     public static class KEventSystem
     {
-        private static bool Initialized;
-        private static readonly Dictionary<int, List<EventInfo>> InstanceEvents = new();
-        private static readonly Dictionary<int, List<EventInfo>> StaticEvents = new();
+        private static bool initialized;
+        private static readonly Dictionary<Type, Delegate> Events = new();
 
+        /// <summary>
+        /// 自动注册添加<see cref="KEventListenerAttribute"/>所标记的静态函数
+        /// </summary>
+        /// <param name="assemblies">需要注册的程序集</param>
         public static async Task InitAsync(params Assembly[] assemblies)
         {
             var tasks = new List<Task>();
@@ -25,77 +29,63 @@ namespace Kdletters.EventSystem
                 {
                     tasks.Add(Task.Run(() =>
                     {
-                        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
+                        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
                         {
                             var attribute = method.GetCustomAttribute<KEventListenerAttribute>();
                             if (attribute is null) continue;
-                            if (!attribute.EventFlag.IsSubclassOf(typeof(Delegate))) continue;
-                            var             key = attribute.EventFlag.FullName!.GetHashCode();
-                            List<EventInfo> delegates;
-                            if (method.IsStatic)
-                            {
-                                if (!StaticEvents.TryGetValue(key, out delegates))
-                                {
-                                    delegates = StaticEvents[key] = new List<EventInfo>();
-                                }
-                            }
+                            var key = attribute.EventFlag;
+                            var eventType = typeof(Action<>).MakeGenericType(key);
+
+                            var parameters = Expression.Parameter(key);
+                            var methodCallExpression = Expression.Call(method, parameters);
+                            var lambda = Expression.Lambda(eventType, methodCallExpression, parameters).Compile();
+
+                            if (!Events.ContainsKey(key))
+                                Events[key] = lambda;
                             else
-                            {
-                                if (!InstanceEvents.TryGetValue(key, out delegates))
-                                {
-                                    delegates = InstanceEvents[key] = new List<EventInfo>();
-                                }
-                            }
-
-                            var parameterInfos = method.GetParameters();
-                            var parameters     = new Type[parameterInfos.Length];
-                            foreach (var parameter in parameterInfos)
-                                parameters[parameter.Position] = parameter.ParameterType;
-
-                            delegates.Add(new EventInfo(key, Delegate.CreateDelegate(attribute.EventFlag, method), parameters));
+                                Events[key] = Delegate.Combine(Events[key], lambda);
                         }
                     }));
                 }
             }
 
             await Task.WhenAll(tasks);
-            Initialized = true;
+            initialized = true;
         }
 
-        public static void Dispatch<T>(params object[] parameters) where T : Delegate
+        public static void Subscribe<T>(Action<T> method)
         {
-            if (!Initialized) throw new Exception("事件系统未初始化");
-            var key = typeof(T).FullName.GetHashCode();
-            if (StaticEvents.ContainsKey(key))
-            {
-                foreach (var eventInfo in StaticEvents[key])
-                {
-                    eventInfo.Delegate.Method.Invoke(null, parameters);
-                }
-            }
+            var key = typeof(T);
 
-            if (InstanceEvents.ContainsKey(key))
-            {
-                foreach (var eventInfo in InstanceEvents[key])
-                {
-                    eventInfo.Delegate.Method.Invoke(parameters[0], parameters[1..]);
-                }
-            }
+            if (!Events.ContainsKey(key))
+                Events[key] = method;
+            else
+                Events[key] = Delegate.Combine(Events[key], method);
         }
 
-        private class EventInfo
+        public static void Unsubscribe<T>(Action<T> method)
         {
-            public int DelegateType;
+            var key = typeof(T);
 
-            public Delegate Delegate;
-            public Type[] Parameters;
+            if (Events.ContainsKey(key))
+                Events[key] = Delegate.Remove(Events[key], method);
+        }
 
-            public EventInfo(int delegateType, Delegate @delegate, params Type[] parameters)
+        public static void Dispatch<T>(T parameter)
+        {
+            if (!initialized) throw new Exception("事件系统未初始化");
+            if (parameter is null) throw new Exception("参数不能为空");
+
+            if (Events.TryGetValue(typeof(T), out var tempEvent))
             {
-                DelegateType = delegateType;
-                Delegate     = @delegate;
-                Parameters   = parameters;
+                var temp = tempEvent as Action<T>;
+                if (temp is null)
+                    Console.WriteLine($"未找到相应事件-[{typeof(T)}]");
+                else
+                    temp.Invoke(parameter);
             }
+            else
+                Console.WriteLine($"未找到相应事件-[{typeof(T)}]");
         }
     }
 }
