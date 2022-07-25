@@ -5,11 +5,14 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
 namespace Kdletters.EventSystem
 {
-    //TODO 委托优化成表达式树
+    public delegate void KEvent<T>(in T arg);
+
     public static class KEventSystem
     {
         private static bool initialized;
@@ -34,9 +37,9 @@ namespace Kdletters.EventSystem
                             var attribute = method.GetCustomAttribute<KEventListenerAttribute>();
                             if (attribute is null) continue;
                             var key = attribute.EventFlag;
-                            var eventType = typeof(Action<>).MakeGenericType(key);
+                            var eventType = typeof(KEvent<>).MakeGenericType(key);
 
-                            var parameters = Expression.Parameter(key);
+                            var parameters = Expression.Parameter(key.MakeByRefType(), "arg");
                             var methodCallExpression = Expression.Call(method, parameters);
                             var lambda = Expression.Lambda(eventType, methodCallExpression, parameters).Compile();
 
@@ -53,7 +56,7 @@ namespace Kdletters.EventSystem
             initialized = true;
         }
 
-        public static void Subscribe<T>(Action<T> method)
+        public static void Subscribe<T>(KEvent<T> method)
         {
             var key = typeof(T);
 
@@ -63,7 +66,7 @@ namespace Kdletters.EventSystem
                 Events[key] = Delegate.Combine(Events[key], method);
         }
 
-        public static void Unsubscribe<T>(Action<T> method)
+        public static void Unsubscribe<T>(KEvent<T> method)
         {
             var key = typeof(T);
 
@@ -71,18 +74,18 @@ namespace Kdletters.EventSystem
                 Events[key] = Delegate.Remove(Events[key], method);
         }
 
-        public static void Dispatch<T>(T parameter)
+        public static void Dispatch<T>(in T argument)
         {
             if (!initialized) throw new Exception("事件系统未初始化");
-            if (parameter is null) throw new Exception("参数不能为空");
+            if (argument is null) throw new Exception("参数不能为空");
 
             if (Events.TryGetValue(typeof(T), out var tempEvent))
             {
-                var temp = tempEvent as Action<T>;
+                var temp = tempEvent as KEvent<T>;
                 if (temp is null)
                     Console.WriteLine($"未找到相应事件-[{typeof(T)}]");
                 else
-                    temp.Invoke(parameter);
+                    temp.Invoke(argument);
             }
             else
                 Console.WriteLine($"未找到相应事件-[{typeof(T)}]");
