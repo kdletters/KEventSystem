@@ -16,11 +16,6 @@ namespace Kdletters.EventSystem
 
         private static readonly Dictionary<Type, Delegate> Events = new();
 
-        static KEventSystem()
-        {
-            Init(AppDomain.CurrentDomain.GetAssemblies());
-        }
-
         public static Task WaitForInitialization()
         {
             if (_initializationTcs != null)
@@ -32,7 +27,14 @@ namespace Kdletters.EventSystem
         }
 
         /// <summary>
-        /// Do not need to call manually.
+        /// Automatic register all static method been mark with attribute <see cref="KEventListenerAttribute"/> in appdomain
+        /// </summary>
+        public static void Init()
+        {
+            Init(AppDomain.CurrentDomain.GetAssemblies());
+        }
+
+        /// <summary>
         /// Automatic register all static method been mark with attribute <see cref="KEventListenerAttribute"/>
         /// </summary>
         /// <param name="assemblies">The assemblies need to register</param>
@@ -46,7 +48,7 @@ namespace Kdletters.EventSystem
             initializing = true;
             _initializationTcs = new TaskCompletionSource<bool>();
             
-            if (assemblies.Length > 0)
+            if (assemblies != null && assemblies.Length > 0)
             {
                 foreach (var assembly in assemblies)
                 {
@@ -72,12 +74,12 @@ namespace Kdletters.EventSystem
                 }
             }
 
+            initializing = false;
             initialized = true;
             _initializationTcs.SetResult(true);
         }
 
         /// <summary>
-        /// Do not need to call manually.
         /// Automatic register all static method been mark with attribute <see cref="KEventListenerAttribute"/>
         /// </summary>
         /// <param name="assemblies">The assemblies need to register</param>
@@ -91,7 +93,7 @@ namespace Kdletters.EventSystem
             initializing = true;
             _initializationTcs = new TaskCompletionSource<bool>();
 
-            if (assemblies.Length > 0)
+            if (assemblies != null && assemblies.Length > 0)
             {
                 var tasks = new List<Task>();
 
@@ -124,6 +126,7 @@ namespace Kdletters.EventSystem
                 await Task.WhenAll(tasks);
             }
 
+            initializing = false;
             initialized = true;
             _initializationTcs.SetResult(true);
         }
@@ -148,19 +151,19 @@ namespace Kdletters.EventSystem
 
         public static void Dispatch<T>(in T argument)
         {
-            if (!initializing) throw new Exception("EventSystem is initializing.");
+            if (initializing) throw new Exception("EventSystem is initializing.");
             if (!initialized) throw new Exception("EventSystem has not initialized.");
             //if (argument is null) throw new Exception("参数不能为空");
 
             if (Events.TryGetValue(typeof(T), out var tempEvent))
             {
                 if (tempEvent is not KEvent<T> temp)
-                    Console.WriteLine($"Can not find correct event-[{typeof(T)}]");
+                    throw new Exception($"Can not find correct event-[{typeof(T)}]");
                 else
                     temp.Invoke(argument);
             }
             else
-                Console.WriteLine($"Can not find correct event-[{typeof(T)}]");
+                throw new Exception($"Can not find correct event-[{typeof(T)}]");
         }
     }
 }
