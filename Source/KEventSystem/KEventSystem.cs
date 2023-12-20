@@ -7,6 +7,17 @@ using System.Threading.Tasks;
 namespace Kdletters.EventSystem
 {
     public delegate void KEvent<T>(in T arg);
+    
+    [AttributeUsage(AttributeTargets.Method)]
+    public class KEventListenerAttribute : Attribute
+    {
+        public Type EventFlag { get; private set; }
+
+        public KEventListenerAttribute(Type flag)
+        {
+            EventFlag = flag;
+        }
+    }
 
     public static class KEventSystem
     {
@@ -14,7 +25,7 @@ namespace Kdletters.EventSystem
         private static bool initialized;
         private static TaskCompletionSource<bool> _initializationTcs;
 
-        private static readonly Dictionary<Type, Delegate> Events = new();
+        private static readonly Dictionary<Type, Delegate> Events = new Dictionary<Type, Delegate>();
 
         public static Task WaitForInitialization()
         {
@@ -23,7 +34,8 @@ namespace Kdletters.EventSystem
                 return _initializationTcs.Task;
             }
 
-            throw new Exception("Does not start initialization.");
+            return Task.CompletedTask;
+            // throw new Exception("Does not start initialization.");
         }
 
         /// <summary>
@@ -42,12 +54,12 @@ namespace Kdletters.EventSystem
         {
             if (initializing || initialized)
             {
-                throw new Exception("Is initialing or has initialized.");
+                // throw new Exception("Is initialing or has initialized.");
             }
 
             initializing = true;
             _initializationTcs = new TaskCompletionSource<bool>();
-            
+
             if (assemblies != null && assemblies.Length > 0)
             {
                 foreach (var assembly in assemblies)
@@ -76,7 +88,7 @@ namespace Kdletters.EventSystem
 
             initializing = false;
             initialized = true;
-            _initializationTcs.SetResult(true);
+            _initializationTcs.TrySetResult(true);
         }
 
         /// <summary>
@@ -87,7 +99,7 @@ namespace Kdletters.EventSystem
         {
             if (initializing || initialized)
             {
-                throw new Exception("Is initialing or has initialized.");
+                // throw new Exception("Is initialing or has initialized.");
             }
 
             initializing = true;
@@ -101,7 +113,7 @@ namespace Kdletters.EventSystem
                 {
                     foreach (var type in assembly.GetTypes())
                     {
-                        tasks.Add(Task.Run(() =>
+                        tasks.Add(System.Threading.Tasks.Task.Run(() =>
                         {
                             foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
                             {
@@ -128,11 +140,16 @@ namespace Kdletters.EventSystem
 
             initializing = false;
             initialized = true;
-            _initializationTcs.SetResult(true);
+            _initializationTcs.TrySetResult(true);
         }
 
         public static void Subscribe<T>(KEvent<T> method)
         {
+            if (method is null)
+            {
+                return;
+            }
+
             var key = typeof(T);
 
             if (!Events.ContainsKey(key))
@@ -143,27 +160,105 @@ namespace Kdletters.EventSystem
 
         public static void Unsubscribe<T>(KEvent<T> method)
         {
+            if (method is null)
+            {
+                return;
+            }
+
             var key = typeof(T);
 
             if (Events.ContainsKey(key))
-                Events[key] = Delegate.Remove(Events[key], method);
+            {
+                var temp = Delegate.Remove(Events[key], method);
+                if (temp is null)
+                {
+                    Events.Remove(key);
+                }
+                else
+                {
+                    Events[key] = temp;
+                }
+            }
         }
 
         public static void Dispatch<T>(in T argument)
         {
-            if (initializing) throw new Exception("EventSystem is initializing.");
-            if (!initialized) throw new Exception("EventSystem has not initialized.");
-            //if (argument is null) throw new Exception("参数不能为空");
+            if (initializing) return; //throw new Exception("EventSystem is initializing.");
+            if (argument is null) return; //throw new Exception("参数不能为空");
 
             if (Events.TryGetValue(typeof(T), out var tempEvent))
             {
-                if (tempEvent is not KEvent<T> temp)
-                    throw new Exception($"Can not find correct event-[{typeof(T)}]");
+                if (!(tempEvent is KEvent<T> temp))
+                {
+                    return;
+                }
                 else
+                {
                     temp.Invoke(argument);
+                }
             }
             else
-                throw new Exception($"Can not find correct event-[{typeof(T)}]");
+            {
+                UnityEngine.Debug.LogWarning($"Can not find correct event-[{typeof(T)}]");
+            }
         }
+
+        public static bool Has<T>() => Events.ContainsKey(typeof(T));
+
+        #region 无参部分
+
+        private static readonly Dictionary<string, Action> NonParamEvents = new Dictionary<string, Action>();
+
+        /// <summary>
+        /// 注册无参事件
+        /// </summary>
+        /// <param name="eventName"></param>
+        /// <param name="method"></param>
+        public static void Subscribe(string eventName, Action method)
+        {
+            if (string.IsNullOrEmpty(eventName)) return;
+            if (method == null) return;
+
+            if (NonParamEvents.ContainsKey(eventName))
+            {
+                NonParamEvents[eventName] += method;
+            }
+            else
+            {
+                NonParamEvents[eventName] = method;
+            }
+        }
+
+        /// <summary>
+        /// 注销无参事件
+        /// </summary>
+        /// <param name="eventName"></param>
+        /// <param name="method"></param>
+        public static void Unsubscribe(string eventName, Action method)
+        {
+            if (string.IsNullOrEmpty(eventName)) return;
+            if (method == null) return;
+
+            if (NonParamEvents.ContainsKey(eventName))
+            {
+                NonParamEvents[eventName] -= method;
+            }
+        }
+
+        /// <summary>
+        /// 触发无参事件
+        /// </summary>
+        /// <param name="eventName"></param>
+        public static void Dispatch(string eventName)
+        {
+            if (string.IsNullOrEmpty(eventName)) return;
+
+            if (NonParamEvents.ContainsKey(eventName))
+            {
+                NonParamEvents[eventName]?.Invoke();
+            }
+        }
+
+        #endregion
     }
 }
