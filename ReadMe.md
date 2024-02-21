@@ -1,70 +1,28 @@
 ﻿# KEventSystem
 
-****项目需要使用netstandard2.1及以上版本****
+这是一个轻量级的事件中心，简单易用，易扩展，性能损耗低。  
 
-1. 事件使用Attribute进行注册 <***KEventListenerAttribute***>
-2. Attribute中传递的类型必须是委托类型，并且放在KEventFlag类下
-3. KEventFlag类可以随便放哪里，只要名字相同即可，推荐使用静态类
-4. 静态与实例方法皆可进行注册，实例方法需要注意第一个参数必须是实例类型
++ 事件的参数类型不做限制，推荐使用结构体。
++ 静态事件可以使用<***KEventListenerAttribute***>进行注册，在调用初始化方法后会自动注册添加特性的事件。
 
-````
-namespace Kdletters.KEventSystem
-{    
-    public static class KEventFlag
-    {
-        public delegate void VoidEvent(KEventTest self);
+## 使用方法
+总共只有三个方法：
++ 事件注册： <***KEventSystem.Subscribe***>
++ 事件触发： <***KEventSystem.Dispatch***>
++ 事件注销： <***KEventSystem.Unsubscribe***>
+> 示例请看测试用例
 
-        public delegate void Event1(object obj);
+------
+# KEventSystem
 
-        public delegate void Event2(object obj1, object obj2);
-    }
-}
+It is a lightweight event hub that is easy to use, easy to scale, and low performance loss.
 
-public class KEventTest
-{
-    //实例函数，委托的第一个参数必须是自身
-    [KEventListener(typeof(Kdletters.KEventSystem.KEventFlag.VoidEvent))]
-    public void TTT()
-    {
-    }
++ There is no restriction on the parameter types of events, and structs are recommended.
++ Static events can be registered using the <***KEventListenerAttribute***>, which automatically registers the event that adds the attribute after the initialization method is called.
 
-    //静态函数，函数的参数跟委托一致即可
-    [KEventListener(typeof(Kdletters.KEventSystem.KEventFlag.Event1))]
-    public static void AAA(object obj)
-    {
-    }
-
-    //KEventFlag可以在任何地方，只要名字正确即可
-    [KEventListener(typeof(KEventFlag.B))]
-    public static void BBB(object obj1, object obj2)
-    {
-    }
-
-    public static class KEventFlag
-    {
-        public delegate void B(object obj1, object obj2);
-    }
-}
-````
-
-5. 事件的调用使用统一接口 ***KEventSystem.Dispatch***
-6. 在项目开始运行时需要使用 ***InitAsync*** 对事件系统进行初始化
-7. 本事件系统拥有配套分析器，可以在编译期间检测是否编写正确
-8. 正常C#工程在.csproj文件内添加以下代码即可加载分析器
-
-````
-<ItemGroup>
-    <Analyzer Include="DLL文件所在位置"/>
-</ItemGroup>
-````
-
-9. Unity项目需要将分析器DLL放在Assets目录下，保证分析器覆盖整个项目，然后将DLL按照下方图片进行设置
-
-![设置平台](Pictures/Picture01.png)
-![添加标签](Pictures/Picture02.png)
-![标签内容](Pictures/Picture03.png)
-
-# TODO
-
-* 目前的事件系统使用的是反射，所以性能有些捉鸡，不过只要不是频繁使用，其实影响不大
-* 下一步准备用表达式树对事件系统进行优化，表达式树编译过后拥有近乎直接调用函数的性能
+## How to use
+There are only three methods:
++ Event subscribe: <***KEventSystem.Subscribe***>
++ Event dispatch: <***KEventSystem.Dispatch***>
++ Event unsubscribe: <***KEventSystem.Unsubscribe***>
+> See test cases for examples

@@ -7,15 +7,21 @@ using System.Threading.Tasks;
 namespace Kdletters.EventSystem
 {
     public delegate void KEvent<T>(in T arg);
-    
+
     [AttributeUsage(AttributeTargets.Method)]
     public class KEventListenerAttribute : Attribute
     {
-        public Type EventFlag { get; private set; }
+        public Type EventFlag { get; }
+        public string EventName { get; }
 
         public KEventListenerAttribute(Type flag)
         {
             EventFlag = flag;
+        }
+
+        public KEventListenerAttribute(string eventName)
+        {
+            EventName = eventName;
         }
     }
 
@@ -26,6 +32,9 @@ namespace Kdletters.EventSystem
         private static TaskCompletionSource<bool> _initializationTcs;
 
         private static readonly Dictionary<Type, Delegate> Events = new Dictionary<Type, Delegate>();
+        private static readonly Dictionary<string, Action> NonParamEvents = new Dictionary<string, Action>();
+
+        public static event Action<string> Log;
 
         public static Task WaitForInitialization()
         {
@@ -54,7 +63,8 @@ namespace Kdletters.EventSystem
         {
             if (initializing || initialized)
             {
-                // throw new Exception("Is initialing or has initialized.");
+                Log?.Invoke("Is initialing or has initialized.");
+                return;
             }
 
             initializing = true;
@@ -66,22 +76,7 @@ namespace Kdletters.EventSystem
                 {
                     foreach (var type in assembly.GetTypes())
                     {
-                        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-                        {
-                            var attribute = method.GetCustomAttribute<KEventListenerAttribute>();
-                            if (attribute is null) continue;
-                            var key = attribute.EventFlag;
-                            var eventType = typeof(KEvent<>).MakeGenericType(key);
-
-                            var parameters = Expression.Parameter(key.MakeByRefType(), "arg");
-                            var methodCallExpression = Expression.Call(method, parameters);
-                            var lambda = Expression.Lambda(eventType, methodCallExpression, parameters).Compile();
-
-                            if (!Events.ContainsKey(key))
-                                Events[key] = lambda;
-                            else
-                                Events[key] = Delegate.Combine(Events[key], lambda);
-                        }
+                        ProcessMethod(type);
                     }
                 }
             }
@@ -99,7 +94,8 @@ namespace Kdletters.EventSystem
         {
             if (initializing || initialized)
             {
-                // throw new Exception("Is initialing or has initialized.");
+                Log?.Invoke("Is initialing or has initialized.");
+                return;
             }
 
             initializing = true;
@@ -113,25 +109,7 @@ namespace Kdletters.EventSystem
                 {
                     foreach (var type in assembly.GetTypes())
                     {
-                        tasks.Add(System.Threading.Tasks.Task.Run(() =>
-                        {
-                            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-                            {
-                                var attribute = method.GetCustomAttribute<KEventListenerAttribute>();
-                                if (attribute is null) continue;
-                                var key = attribute.EventFlag;
-                                var eventType = typeof(KEvent<>).MakeGenericType(key);
-
-                                var parameters = Expression.Parameter(key.MakeByRefType(), "arg");
-                                var methodCallExpression = Expression.Call(method, parameters);
-                                var lambda = Expression.Lambda(eventType, methodCallExpression, parameters).Compile();
-
-                                if (!Events.ContainsKey(key))
-                                    Events[key] = lambda;
-                                else
-                                    Events[key] = Delegate.Combine(Events[key], lambda);
-                            }
-                        }));
+                        tasks.Add(System.Threading.Tasks.Task.Run(() => { ProcessMethod(type); }));
                     }
                 }
 
@@ -141,6 +119,40 @@ namespace Kdletters.EventSystem
             initializing = false;
             initialized = true;
             _initializationTcs.TrySetResult(true);
+        }
+
+        private static void ProcessMethod(Type type)
+        {
+            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+            {
+                var attribute = method.GetCustomAttribute<KEventListenerAttribute>();
+                if (attribute is null) continue;
+                var key = attribute.EventFlag;
+                if (key == null)
+                {
+                    Subscribe(attribute.EventName, (Action) method.CreateDelegate(typeof(Action)));
+                }
+                else
+                {
+                    var param = method.GetParameters();
+                    if (param.Length != 1 || param[0].ParameterType != key.MakeByRefType())
+                    {
+                        Log?.Invoke("The method format is incorrect, please check.");
+                        continue;
+                    }
+
+                    var eventType = typeof(KEvent<>).MakeGenericType(key);
+
+                    var parameters = Expression.Parameter(key.MakeByRefType(), "arg");
+                    var methodCallExpression = Expression.Call(method, parameters);
+                    var lambda = Expression.Lambda(eventType, methodCallExpression, parameters).Compile();
+
+                    if (!Events.ContainsKey(key))
+                        Events[key] = lambda;
+                    else
+                        Events[key] = Delegate.Combine(Events[key], lambda);
+                }
+            }
         }
 
         public static void Subscribe<T>(KEvent<T> method)
@@ -183,8 +195,17 @@ namespace Kdletters.EventSystem
 
         public static void Dispatch<T>(in T argument)
         {
-            if (initializing) return; //throw new Exception("EventSystem is initializing.");
-            if (argument is null) return; //throw new Exception("参数不能为空");
+            if (initializing)
+            {
+                Log?.Invoke("EventSystem is initializing.");
+                return; 
+            }
+
+            if (argument is null)
+            {
+                Log?.Invoke("The parameter cannot be empty");
+                return;
+            }
 
             if (Events.TryGetValue(typeof(T), out var tempEvent))
             {
@@ -199,15 +220,13 @@ namespace Kdletters.EventSystem
             }
             else
             {
-                UnityEngine.Debug.LogWarning($"Can not find correct event-[{typeof(T)}]");
+                Log?.Invoke($"Can not find correct event-[{typeof(T)}]");
             }
         }
 
         public static bool Has<T>() => Events.ContainsKey(typeof(T));
 
         #region 无参部分
-
-        private static readonly Dictionary<string, Action> NonParamEvents = new Dictionary<string, Action>();
 
         /// <summary>
         /// 注册无参事件
@@ -253,9 +272,9 @@ namespace Kdletters.EventSystem
         {
             if (string.IsNullOrEmpty(eventName)) return;
 
-            if (NonParamEvents.ContainsKey(eventName))
+            if (NonParamEvents.TryGetValue(eventName, out var action))
             {
-                NonParamEvents[eventName]?.Invoke();
+                action?.Invoke();
             }
         }
 
