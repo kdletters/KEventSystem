@@ -36,6 +36,11 @@ namespace Kdletters.EventSystem
 
         public static event Action<string> Log;
 
+        static KEventSystem()
+        {
+            Log += Console.WriteLine;
+        }
+
         public static Task WaitForInitialization()
         {
             if (_initializationTcs != null)
@@ -87,6 +92,14 @@ namespace Kdletters.EventSystem
         }
 
         /// <summary>
+        /// Automatic register all static method been mark with attribute <see cref="KEventListenerAttribute"/> in appdomain
+        /// </summary>
+        public static Task InitAsync()
+        {
+            return InitAsync(AppDomain.CurrentDomain.GetAssemblies());
+        }
+
+        /// <summary>
         /// Automatic register all static method been mark with attribute <see cref="KEventListenerAttribute"/>
         /// </summary>
         /// <param name="assemblies">The assemblies need to register</param>
@@ -130,14 +143,26 @@ namespace Kdletters.EventSystem
                 var key = attribute.EventFlag;
                 if (key == null)
                 {
+                    if (string.IsNullOrEmpty(attribute.EventName))
+                    {
+                        Log?.Invoke($"[{type.FullName}.{method.Name}] The event name is null or empty.");
+                        continue;
+                    }
+
                     Subscribe(attribute.EventName, (Action) method.CreateDelegate(typeof(Action)));
                 }
                 else
                 {
                     var param = method.GetParameters();
-                    if (param.Length != 1 || param[0].ParameterType != key.MakeByRefType())
+                    if (param.Length != 1)
                     {
-                        Log?.Invoke("The method format is incorrect, please check.");
+                        Log?.Invoke($"[{type.FullName}.{method.Name}] The method format is incorrect, please check.\n Incorrect param count.");
+                        continue;
+                    }
+
+                    if (param[0].ParameterType != key.MakeByRefType())
+                    {
+                        Log?.Invoke($"[{type.FullName}.{method.Name}] The method format is incorrect, please check.\n{param[0].ParameterType} | {key.MakeByRefType()}");
                         continue;
                     }
 
@@ -198,7 +223,7 @@ namespace Kdletters.EventSystem
             if (initializing)
             {
                 Log?.Invoke("EventSystem is initializing.");
-                return; 
+                return;
             }
 
             if (argument is null)
