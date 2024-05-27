@@ -8,6 +8,8 @@ namespace Kdletters.EventSystem
 {
     public delegate void KEvent<T>(in T arg);
 
+    public delegate Task KTask<T>(in T arg);
+
     [AttributeUsage(AttributeTargets.Method)]
     public class KEventListenerAttribute : Attribute
     {
@@ -32,7 +34,9 @@ namespace Kdletters.EventSystem
         private static TaskCompletionSource<bool> _initializationTcs;
 
         private static readonly Dictionary<Type, Delegate> Events = new Dictionary<Type, Delegate>();
+        private static readonly Dictionary<Type, Delegate> Tasks = new Dictionary<Type, Delegate>();
         private static readonly Dictionary<string, Action> NonParamEvents = new Dictionary<string, Action>();
+        private static readonly Dictionary<string, Func<Task>> NonParamTasks = new Dictionary<string, Func<Task>>();
 
         public static event Action<string> Log;
 
@@ -140,42 +144,74 @@ namespace Kdletters.EventSystem
             {
                 var attribute = method.GetCustomAttribute<KEventListenerAttribute>();
                 if (attribute is null) continue;
-                var key = attribute.EventFlag;
-                if (key == null)
+                var argType = attribute.EventFlag;
+                var param = method.GetParameters();
+                var ret = method.ReturnType;
+                if (argType == null)
                 {
-                    if (string.IsNullOrEmpty(attribute.EventName))
+                    if (string.IsNullOrEmpty(attribute.EventName) || param.Length > 0)
                     {
                         Log?.Invoke($"[{type.FullName}.{method.Name}] The event name is null or empty.");
                         continue;
                     }
 
-                    Subscribe(attribute.EventName, (Action) method.CreateDelegate(typeof(Action)));
+                    if (ret == typeof(void))
+                    {
+                        Subscribe(attribute.EventName, (Action) method.CreateDelegate(typeof(Action)));
+                    }
+                    else if (ret == typeof(Task))
+                    {
+                        Subscribe(attribute.EventName, (Func<Task>) method.CreateDelegate(typeof(Func<Task>)));
+                    }
+                    else
+                    {
+                        Log?.Invoke($"[{type.FullName}.{method.Name}] The event return type is illegal.");
+                    }
                 }
                 else
                 {
-                    var param = method.GetParameters();
                     if (param.Length != 1)
                     {
                         Log?.Invoke($"[{type.FullName}.{method.Name}] The method format is incorrect, please check.\n Incorrect param count.");
                         continue;
                     }
 
-                    if (param[0].ParameterType != key.MakeByRefType())
+                    if (param[0].ParameterType != argType.MakeByRefType())
                     {
-                        Log?.Invoke($"[{type.FullName}.{method.Name}] The method format is incorrect, please check.\n{param[0].ParameterType} | {key.MakeByRefType()}");
+                        Log?.Invoke($"[{type.FullName}.{method.Name}] The method format is incorrect, please check.\n{param[0].ParameterType} | {argType.MakeByRefType()}");
                         continue;
                     }
 
-                    var eventType = typeof(KEvent<>).MakeGenericType(key);
+                    if (ret == typeof(void))
+                    {
+                        var eventType = typeof(KEvent<>).MakeGenericType(argType);
 
-                    var parameters = Expression.Parameter(key.MakeByRefType(), "arg");
-                    var methodCallExpression = Expression.Call(method, parameters);
-                    var lambda = Expression.Lambda(eventType, methodCallExpression, parameters).Compile();
+                        var parameters = Expression.Parameter(argType.MakeByRefType(), "arg");
+                        var methodCallExpression = Expression.Call(method, parameters);
+                        var lambda = Expression.Lambda(eventType, methodCallExpression, parameters).Compile();
 
-                    if (!Events.ContainsKey(key))
-                        Events[key] = lambda;
+                        if (!Events.ContainsKey(argType))
+                            Events[argType] = lambda;
+                        else
+                            Events[argType] = Delegate.Combine(Events[argType], lambda);
+                    }
+                    else if (ret == typeof(Task))
+                    {
+                        var eventType = typeof(KTask<>).MakeGenericType(argType);
+
+                        var parameters = Expression.Parameter(argType.MakeByRefType(), "arg");
+                        var methodCallExpression = Expression.Call(method, parameters);
+                        var lambda = Expression.Lambda(eventType, methodCallExpression, parameters).Compile();
+
+                        if (!Events.ContainsKey(argType))
+                            Events[argType] = lambda;
+                        else
+                            Events[argType] = Delegate.Combine(Events[argType], lambda);
+                    }
                     else
-                        Events[key] = Delegate.Combine(Events[key], lambda);
+                    {
+                        Log?.Invoke($"[{type.FullName}.{method.Name}] The event return type is illegal.");
+                    }
                 }
             }
         }
@@ -301,6 +337,72 @@ namespace Kdletters.EventSystem
             {
                 action?.Invoke();
             }
+            else if (NonParamTasks.TryGetValue(eventName, out var task))
+            {
+                Call(task);
+            }
+
+            return;
+
+            async void Call(Func<Task> task)
+            {
+                await (task?.Invoke() ?? Task.CompletedTask);
+            }
+        }
+
+        /// <summary>
+        /// 注册无参事件
+        /// </summary>
+        /// <param name="eventName"></param>
+        /// <param name="method"></param>
+        public static void Subscribe(string eventName, Func<Task> method)
+        {
+            if (string.IsNullOrEmpty(eventName)) return;
+            if (method is null) return;
+
+            if (NonParamTasks.ContainsKey(eventName))
+            {
+                NonParamTasks[eventName] += method;
+            }
+            else
+            {
+                NonParamTasks[eventName] = method;
+            }
+        }
+
+        /// <summary>
+        /// 注销无参事件
+        /// </summary>
+        /// <param name="eventName"></param>
+        /// <param name="method"></param>
+        public static void Unsubscribe(string eventName, Func<Task> method)
+        {
+            if (string.IsNullOrEmpty(eventName)) return;
+            if (method is null) return;
+
+            if (NonParamTasks.ContainsKey(eventName))
+            {
+                NonParamTasks[eventName] -= method;
+            }
+        }
+
+        /// <summary>
+        /// 触发无参事件
+        /// </summary>
+        /// <param name="eventName"></param>
+        public static Task DispatchTask(string eventName)
+        {
+            if (!string.IsNullOrEmpty(eventName))
+            {
+                if (NonParamTasks.TryGetValue(eventName, out var action))
+                {
+                    return action?.Invoke() ?? Task.CompletedTask;
+                }
+
+                Dispatch(eventName);
+            }
+
+            return Task.CompletedTask;
         }
 
         #endregion

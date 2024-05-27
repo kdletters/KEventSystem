@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using EventKey;
 using Kdletters.EventSystem;
 using NUnit.Framework;
@@ -21,8 +22,11 @@ namespace Test
         public void NonParamStaticEvent()
         {
             KEventSystem.Subscribe("Add", Test.StaticEvent.Add);
+            KEventSystem.Subscribe("Add", Test.StaticEvent.AddTask);
             Check(() => KEventSystem.Dispatch("Add"));
+            Check(() => KEventSystem.DispatchTask("Add"));
             Check(() => KEventSystem.Dispatch("Foo"));
+            Check(() => KEventSystem.DispatchTask("Foo"));
             KEventSystem.Unsubscribe("Add", Test.StaticEvent.Add);
         }
 
@@ -68,6 +72,12 @@ namespace Test
             Console.WriteLine("non-param static event Foo has been called.");
             throw new SuccessException();
         }
+        [KEventListener("Foo")]
+        public static Task FooTask()
+        {
+            Console.WriteLine("non-param static event FooTask has been called.");
+            throw new SuccessException();
+        }
 
         [KEventListener(typeof(FooArg))]
         public static void Foo(in FooArg arg)
@@ -79,6 +89,12 @@ namespace Test
         public static void Add()
         {
             Console.WriteLine("non-param static event Add has been called.");
+            throw new SuccessException();
+        }
+
+        public static Task AddTask()
+        {
+            Console.WriteLine("non-param static event AddTask has been called.");
             throw new SuccessException();
         }
 
@@ -102,6 +118,13 @@ namespace Test
         public void Add(in AddArg arg)
         {
             Console.WriteLine("instance event Add has been called.");
+            Console.WriteLine(v + arg.a);
+            throw new SuccessException();
+        }
+
+        public Task AddTask(in AddArg arg)
+        {
+            Console.WriteLine("instance event AddTask has been called.");
             Console.WriteLine(v + arg.a);
             throw new SuccessException();
         }
