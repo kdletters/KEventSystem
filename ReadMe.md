@@ -15,7 +15,7 @@
 ------
 # KEventSystem
 
-It is a lightweight event hub that is easy to use, easy to scale, and low performance loss.
+It is a lightweight event hub that is easy to use, easy to extend, and low performance loss.
 
 + There is no restriction on the parameter types of events, and structs are recommended.
 + Static events can be registered using the <***KEventListenerAttribute***>, which automatically registers the event that adds the attribute after the initialization method is called.
