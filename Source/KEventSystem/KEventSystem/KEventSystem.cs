@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -38,11 +38,11 @@ namespace Kdletters.EventSystem
         private static readonly Dictionary<string, Action> NonParamEvents = new Dictionary<string, Action>();
         private static readonly Dictionary<string, Func<Task>> NonParamTasks = new Dictionary<string, Func<Task>>();
 
-        public static event Action<string> Log;
+        public static event Action<string> LogError;
 
         static KEventSystem()
         {
-            Log += Console.WriteLine;
+            LogError += Console.WriteLine;
         }
 
         public static Task WaitForInitialization()
@@ -72,7 +72,7 @@ namespace Kdletters.EventSystem
         {
             if (initializing || initialized)
             {
-                Log?.Invoke("Is initialing or has initialized.");
+                LogError?.Invoke("Is initialing or has initialized.");
                 return;
             }
 
@@ -111,7 +111,7 @@ namespace Kdletters.EventSystem
         {
             if (initializing || initialized)
             {
-                Log?.Invoke("Is initialing or has initialized.");
+                LogError?.Invoke("Is initialing or has initialized.");
                 return;
             }
 
@@ -151,7 +151,7 @@ namespace Kdletters.EventSystem
                 {
                     if (string.IsNullOrEmpty(attribute.EventName) || param.Length > 0)
                     {
-                        Log?.Invoke($"[{type.FullName}.{method.Name}] The event name is null or empty.");
+                        LogError?.Invoke($"[{type.FullName}.{method.Name}] The event name is null or empty.");
                         continue;
                     }
 
@@ -165,20 +165,20 @@ namespace Kdletters.EventSystem
                     }
                     else
                     {
-                        Log?.Invoke($"[{type.FullName}.{method.Name}] The event return type is illegal.");
+                        LogError?.Invoke($"[{type.FullName}.{method.Name}] The event return type is illegal.");
                     }
                 }
                 else
                 {
                     if (param.Length != 1)
                     {
-                        Log?.Invoke($"[{type.FullName}.{method.Name}] The method format is incorrect, please check.\n Incorrect param count.");
+                        LogError?.Invoke($"[{type.FullName}.{method.Name}] The method format is incorrect, please check.\n Incorrect param count.");
                         continue;
                     }
 
                     if (param[0].ParameterType != argType.MakeByRefType())
                     {
-                        Log?.Invoke($"[{type.FullName}.{method.Name}] The method format is incorrect, please check.\n{param[0].ParameterType} | {argType.MakeByRefType()}");
+                        LogError?.Invoke($"[{type.FullName}.{method.Name}] The method format is incorrect, please check.\n{param[0].ParameterType} | {argType.MakeByRefType()}");
                         continue;
                     }
 
@@ -203,14 +203,14 @@ namespace Kdletters.EventSystem
                         var methodCallExpression = Expression.Call(method, parameters);
                         var lambda = Expression.Lambda(eventType, methodCallExpression, parameters).Compile();
 
-                        if (!Events.ContainsKey(argType))
-                            Events[argType] = lambda;
+                        if (!Tasks.ContainsKey(argType))
+                            Tasks[argType] = lambda;
                         else
-                            Events[argType] = Delegate.Combine(Events[argType], lambda);
+                            Tasks[argType] = Delegate.Combine(Tasks[argType], lambda);
                     }
                     else
                     {
-                        Log?.Invoke($"[{type.FullName}.{method.Name}] The event return type is illegal.");
+                        LogError?.Invoke($"[{type.FullName}.{method.Name}] The event return type is illegal.");
                     }
                 }
             }
@@ -254,34 +254,109 @@ namespace Kdletters.EventSystem
             }
         }
 
-        public static void Dispatch<T>(in T argument)
+        public static void Subscribe<T>(KTask<T> method)
+        {
+            if (method is null)
+            {
+                return;
+            }
+
+            var key = typeof(T);
+
+            if (!Tasks.ContainsKey(key))
+                Tasks[key] = method;
+            else
+                Tasks[key] = Delegate.Combine(Tasks[key], method);
+        }
+
+        public static void Unsubscribe<T>(KTask<T> method)
+        {
+            if (method is null)
+            {
+                return;
+            }
+
+            var key = typeof(T);
+
+            if (Tasks.ContainsKey(key))
+            {
+                var temp = Delegate.Remove(Tasks[key], method);
+                if (temp is null)
+                {
+                    Tasks.Remove(key);
+                }
+                else
+                {
+                    Tasks[key] = temp;
+                }
+            }
+        }
+
+        public static void DispatchSync<T>(in T argument)
         {
             if (initializing)
             {
-                Log?.Invoke("EventSystem is initializing.");
+                LogError?.Invoke("EventSystem is initializing.");
                 return;
             }
 
             if (argument is null)
             {
-                Log?.Invoke("The parameter cannot be empty");
+                LogError?.Invoke("The parameter cannot be empty");
                 return;
             }
 
             if (Events.TryGetValue(typeof(T), out var tempEvent))
             {
-                if (!(tempEvent is KEvent<T> temp))
-                {
-                    return;
-                }
-                else
+                if (tempEvent is KEvent<T> temp)
                 {
                     temp.Invoke(argument);
                 }
             }
             else
             {
-                Log?.Invoke($"Can not find correct event-[{typeof(T)}]");
+                LogError?.Invoke($"Can not find correct event-[{typeof(T)}]");
+            }
+        }
+
+        public static Task DispatchTask<T>(in T argument)
+        {
+            if (initializing)
+            {
+                LogError?.Invoke("EventSystem is initializing.");
+                return Task.CompletedTask;
+            }
+
+            if (argument is null)
+            {
+                LogError?.Invoke("The parameter cannot be empty");
+                return Task.CompletedTask;
+            }
+
+            if (Tasks.TryGetValue(typeof(T), out var tempEvent))
+            {
+                if (tempEvent is KTask<T> temp)
+                {
+                    var invocationList = temp.GetInvocationList();
+                    var taskList = new List<Task>(invocationList.Length);
+                    for (int i = 0; i < invocationList.Length; i++)
+                    {
+                        var d = (KTask<T>)invocationList[i];
+                        taskList.Add(d.Invoke(in argument));
+                    }
+
+                    return taskList.Count > 0 ? Task.WhenAll(taskList) : Task.CompletedTask;
+                }
+                else
+                {
+                    return Task.CompletedTask;
+                }
+            }
+            else
+            {
+                // 若没有异步订阅，则回退到同步分发
+                DispatchSync(in argument);
+                return Task.CompletedTask;
             }
         }
 
@@ -329,7 +404,7 @@ namespace Kdletters.EventSystem
         /// 触发无参事件
         /// </summary>
         /// <param name="eventName"></param>
-        public static void Dispatch(string eventName)
+        public static void DispatchSync(string eventName)
         {
             if (string.IsNullOrEmpty(eventName)) return;
 
@@ -337,16 +412,9 @@ namespace Kdletters.EventSystem
             {
                 action?.Invoke();
             }
-            else if (NonParamTasks.TryGetValue(eventName, out var task))
+            else
             {
-                Call(task);
-            }
-
-            return;
-
-            async void Call(Func<Task> task)
-            {
-                await (task?.Invoke() ?? Task.CompletedTask);
+                LogError?.Invoke($"Can not find correct event-[{eventName}]");
             }
         }
 
@@ -387,7 +455,7 @@ namespace Kdletters.EventSystem
         }
 
         /// <summary>
-        /// 触发无参事件
+        /// 触发异步无参事件
         /// </summary>
         /// <param name="eventName"></param>
         public static Task DispatchTask(string eventName)
@@ -396,10 +464,24 @@ namespace Kdletters.EventSystem
             {
                 if (NonParamTasks.TryGetValue(eventName, out var action))
                 {
-                    return action?.Invoke() ?? Task.CompletedTask;
+                    var delegates = action.GetInvocationList();
+                    var tasks = new List<Task>(delegates.Length);
+                    for (int i = 0; i < delegates.Length; i++)
+                    {
+                        try
+                        {
+                            tasks.Add(((Func<Task>)delegates[i]).Invoke());
+                        }
+                        catch (Exception e)
+                        {
+                            LogError?.Invoke($"Something wrong with the event-[{eventName}]: {e}");
+                        }
+                    }
+
+                    return tasks.Count > 0 ? Task.WhenAll(tasks) : Task.CompletedTask;
                 }
 
-                Dispatch(eventName);
+                DispatchSync(eventName);
             }
 
             return Task.CompletedTask;
